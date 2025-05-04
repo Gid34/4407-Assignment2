@@ -1,0 +1,130 @@
+#!/bin/bash
+
+# Check for input file argument
+if [ "$#" -ne 1 ]; then
+    echo "Usage: $0 <cleaned_tsv_file>"
+    exit 1
+fi
+
+input_file="$1"
+
+# Check if file exists and is readable
+if [ ! -f "$input_file" ] || [ ! -r "$input_file" ]; then
+    echo "Error: Cannot read file '$input_file'" >&2
+    exit 1
+fi
+
+# Process the file
+awk -F'\t' '
+BEGIN {
+    # Initialize counters
+    delete mechanics_count
+    delete domains_count
+    total_games = 0
+    sum_xy_year = sum_x_year = sum_y_year = sum_x2_year = sum_y2_year = 0
+    sum_xy_complexity = sum_x_complexity = sum_y_complexity = sum_x2_complexity = sum_y2_complexity = 0
+}
+NR == 1 {
+    # Find column indices
+    for (i=1; i<=NF; i++) {
+        if ($i == "Mechanics") mechanics_col = i
+        if ($i == "Domains") domains_col = i
+        if ($i == "Year Published") year_col = i
+        if ($i == "Rating Average") rating_col = i
+        if ($i == "Complexity Average") complexity_col = i
+    }
+    next
+}
+{
+    total_games++
+    
+    # Count mechanics (handle empty cells)
+    if (mechanics_col && $mechanics_col != "") {
+        split($mechanics_col, mechanics, /, */)
+        for (m in mechanics) {
+            mechanics_count[mechanics[m]]++
+        }
+    }
+    
+    # Count domains (handle empty cells)
+    if (domains_col && $domains_col != "") {
+        split($domains_col, domains, /, */)
+        for (d in domains) {
+            domains_count[domains[d]]++
+        }
+    }
+    
+    # Prepare for correlation calculations (skip empty/non-numeric values)
+    if (year_col && rating_col && $year_col ~ /^[0-9]+$/ && $rating_col ~ /^[0-9.]+$/) {
+        x = $year_col
+        y = $rating_col
+        sum_xy_year += x * y
+        sum_x_year += x
+        sum_y_year += y
+        sum_x2_year += x * x
+        sum_y2_year += y * y
+        n_year++
+    }
+    
+    if (complexity_col && rating_col && $complexity_col ~ /^[0-9.]+$/ && $rating_col ~ /^[0-9.]+$/) {
+        x = $complexity_col
+        y = $rating_col
+        sum_xy_complexity += x * y
+        sum_x_complexity += x
+        sum_y_complexity += y
+        sum_x2_complexity += x * x
+        sum_y2_complexity += y * y
+        n_complexity++
+    }
+}
+END {
+    # Find most popular mechanic
+    max_mech_count = 0
+    for (m in mechanics_count) {
+        if (mechanics_count[m] > max_mech_count) {
+            max_mech_count = mechanics_count[m]
+            popular_mech = m
+        }
+    }
+    
+    # Find most popular domain
+    max_domain_count = 0
+    for (d in domains_count) {
+        if (domains_count[d] > max_domain_count) {
+            max_domain_count = domains_count[d]
+            popular_domain = d
+        }
+    }
+    
+    # Calculate Pearson correlation for year vs rating
+    if (n_year > 0) {
+        numerator_year = sum_xy_year - (sum_x_year * sum_y_year)/n_year
+        denominator_year_x = sqrt(sum_x2_year - (sum_x_year^2)/n_year)
+        denominator_year_y = sqrt(sum_y2_year - (sum_y_year^2)/n_year)
+        if (denominator_year_x > 0 && denominator_year_y > 0) {
+            corr_year = numerator_year / (denominator_year_x * denominator_year_y)
+        } else {
+            corr_year = 0
+        }
+    }
+    
+    # Calculate Pearson correlation for complexity vs rating
+    if (n_complexity > 0) {
+        numerator_complexity = sum_xy_complexity - (sum_x_complexity * sum_y_complexity)/n_complexity
+        denominator_complexity_x = sqrt(sum_x2_complexity - (sum_x_complexity^2)/n_complexity)
+        denominator_complexity_y = sqrt(sum_y2_complexity - (sum_y_complexity^2)/n_complexity)
+        if (denominator_complexity_x > 0 && denominator_complexity_y > 0) {
+            corr_complexity = numerator_complexity / (denominator_complexity_x * denominator_complexity_y)
+        } else {
+            corr_complexity = 0
+        }
+    }
+    
+    # Print results in required format
+    printf "The most popular game mechanics is %s found in %d games\n", popular_mech, max_mech_count
+    printf "The most style of game is %s found in %d games\n", popular_domain, max_domain_count
+    printf "The correlation between the year of publication and the average rating is %.3f\n", corr_year
+    printf "The correlation between the complexity of a game and its average rating is %.3f\n", corr_complexity
+}' "$input_file"
+
+exit 0
