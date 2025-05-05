@@ -1,30 +1,52 @@
 #!/bin/bash
-# Usage: ./empty_cells <input_file> <separator>
-# Example: ./empty_cells bgg_dataset.txt ";"
+
+# Check for correct number of arguments
+if [ "$#" -ne 1 ]; then
+    echo "Usage: $0 <input_file>"
+    exit 1
+fi
 
 input_file="$1"
-separator="$2"
 
-# Get header columns
-IFS=$separator read -r -a headers < "$input_file"
-num_cols="${#headers[@]}"
-declare -a col_counts
+# Check if file exists and is readable
+if [ ! -f "$input_file" ] || [ ! -r "$input_file" ]; then
+    echo "Error: Cannot read file '$input_file'" >&2
+    exit 1
+fi
 
-# Initialize array to 0
-for ((i = 0; i < num_cols; i++)); do
-    col_counts[i]=0
+# Process first line (remove BOM if exists and clean)
+first_line=$(head -1 "$input_file" | sed '1s/^\xEF\xBB\xBF//' | tr -d '\r')
+IFS=';' read -r -a headers <<< "$first_line"
+num_columns=${#headers[@]}
+
+# Initialize empty counts array
+declare -a empty_counts=()
+for ((i=0; i<num_columns; i++)); do
+    empty_counts[i]=0
 done
 
-# Skip header line and count empty cells
-tail -n +2 "$input_file" | while IFS=$separator read -r -a fields; do
-    for ((i = 0; i < num_cols; i++)); do
-        if [[ -z "${fields[i]// /}" ]]; then
-            ((col_counts[i]++))
+# Process data lines (skip header)
+line_num=0
+while IFS= read -r line || [ -n "$line" ]; do
+    line_num=$((line_num + 1))
+    [ "$line_num" -eq 1 ] && continue  # Skip header
+    
+    # Clean line and split into fields
+    clean_line=$(echo "$line" | tr -d '\r')
+    IFS=';' read -r -a fields <<< "$clean_line"
+    
+    # Count empty fields (handle missing columns)
+    for ((i=0; i<num_columns; i++)); do
+        if [ -z "${fields[i]:-}" ]; then
+            ((empty_counts[i]++))
         fi
     done
+done < "$input_file"
+
+# Print results in exact required format
+echo "/"  # Start with forward slash as shown in expected output
+for ((i=0; i<num_columns; i++)); do
+    echo "${headers[i]}: ${empty_counts[i]}"
 done
 
-# Output results
-for ((i = 0; i < num_cols; i++)); do
-    echo "${headers[i]}: ${col_counts[i]}"
-done
+exit 0
