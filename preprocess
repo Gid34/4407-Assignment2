@@ -1,32 +1,61 @@
 #!/bin/bash
-# Usage: ./preprocess <input_file>
-# Output goes to STDOUT
+
+# Check for input file argument
+if [ "$#" -ne 1 ]; then
+    echo "Usage: $0 <input_file>"
+    exit 1
+fi
 
 input_file="$1"
 
-# Convert line endings to Unix, fix decimal comma, convert delimiter, remove non-ASCII
-tmp_file=$(mktemp)
-tr -d '\r' < "$input_file" |
-    sed 's/,/./g' |
-    tr -cd '\11\12\15\40-\176' |
-    sed 's/;/\t/g' > "$tmp_file"
+# Check if file exists and is readable
+if [ ! -f "$input_file" ] || [ ! -r "$input_file" ]; then
+    echo "Error: Cannot read file '$input_file'" >&2
+    exit 1
+fi
 
-# Fix missing IDs
-# Extract max ID
-max_id=$(awk -F'\t' 'NR>1 && $1 ~ /^[0-9]+$/ && $1 > max { max = $1 } END { print max }' "$tmp_file")
+# Find the maximum ID in the file to start new IDs
+max_id=$(awk -F';' 'NR>1 && $1~/^[0-9]+$/ {if($1>max) max=$1} END{print max}' "$input_file")
 new_id=$((max_id + 1))
 
-# Read and replace empty IDs
+# Process the file with all required transformations
+awk -F';' -v new_id="$new_id" '
+BEGIN {OFS = "\t"}
+NR == 1 {
+    # Preserve existing slash if present, otherwise add one
+    if ($0 ~ /^\//) {
+        # Keep existing slash and convert following semicolons to tabs
+        first_char = substr($0, 1, 1)
+        rest = substr($0, 2)
+        gsub(/;/, "\t", rest)
+        $0 = first_char rest
+    } else {
+        # Add slash and convert all semicolons to tabs
+        gsub(/;/, "\t")
+        $0 = "/" $0
+    }
+    print
+    next
+}
 {
-    read -r header
-    echo "$header"
-    while IFS=$'\t' read -r -a line; do
-        if [[ -z "${line[0]}" ]]; then
-            line[0]=$new_id
-            ((new_id++))
-        fi
-        (IFS=$'\t'; echo "${line[*]}")
-    done
-} < "$tmp_file"
+    # Handle empty ID by assigning new ID
+    if ($1 == "") {
+        $1 = new_id++
+    }
+    
+    # Convert decimal commas to points for numeric fields
+    gsub(/,/, ".", $9)   # Rating Average
+    gsub(/,/, ".", $11)  # Complexity Average
+    
+    # Remove non-ASCII characters from all fields
+    for (i = 1; i <= NF; i++) {
+        # This removes all non-ASCII and non-printable ASCII characters except basic punctuation
+        gsub(/[^\x20-\x7E]/, "", $i)
+    }
+    
+    # Convert remaining semicolons to tabs and print
+    gsub(/;/, "\t")
+    print
+}' "$input_file" | tr -d '\r'  # Convert Windows line endings to Unix
 
-rm "$tmp_file"
+exit 0
