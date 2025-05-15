@@ -14,28 +14,28 @@ if [ ! -f "$input_file" ] || [ ! -r "$input_file" ]; then
     exit 1
 fi
 
-# Process first line (remove BOM if exists and clean)
+# Process first line. This extracts headers and determines the number of columns to analyze
 first_line=$(head -1 "$input_file" | sed '1s/^\xEF\xBB\xBF//' | tr -d '\r')
 IFS=';' read -r -a headers <<< "$first_line"
 num_columns=${#headers[@]}
 
-# Initialize empty counts array
+# Initialize empty counts array, which is an array of zeros with length matching the number of columns
 declare -a empty_counts=()
 for ((i=0; i<num_columns; i++)); do
     empty_counts[i]=0
 done
 
-# Process data lines (skip header)
+# Process data lines, while skipping the header. Reads each line of the file, counting empty fields in each column
 line_num=0
 while IFS= read -r line || [ -n "$line" ]; do
     line_num=$((line_num + 1))
-    [ "$line_num" -eq 1 ] && continue  # Skip header
+    [ "$line_num" -eq 1 ] && continue  # Skips header
     
-    # Clean line and split into fields
+    # Clean line and split into fields. Removes carriage returns and parses the semicolon-delimited data
     clean_line=$(echo "$line" | tr -d '\r')
     IFS=';' read -r -a fields <<< "$clean_line"
     
-    # Count empty fields (handle missing columns)
+    # Count empty fields (handle missing columns). The :-} syntax provides a default empty value if the field doesn't exist
     for ((i=0; i<num_columns; i++)); do
         if [ -z "${fields[i]:-}" ]; then
             ((empty_counts[i]++))
@@ -43,7 +43,7 @@ while IFS= read -r line || [ -n "$line" ]; do
     done
 done < "$input_file"
 
-# Print results in exact required format
+# Print results in exact required format. Outputs each column name with its empty cell count
 echo "/"  # Start with forward slash as shown in expected output
 for ((i=0; i<num_columns; i++)); do
     echo "${headers[i]}: ${empty_counts[i]}"

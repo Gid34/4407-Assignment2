@@ -14,19 +14,19 @@ if [ ! -f "$input_file" ] || [ ! -r "$input_file" ]; then
     exit 1
 fi
 
-# Determine output filename (remove directory path and cleaned_ prefix if present), replace extension with .tsv
+# Determine output filename, while also handling directory. This creates a standardized output filename in .tsv format, based on the input file
 base_name=$(basename "$input_file" | sed 's/^cleaned_//' | sed 's/\.[^.]*$//')
 output_file="${base_name}.tsv"
 
-# Find the maximum ID in the file to start new IDs
+# Find the maximum ID in the file to start new IDs. This ensures we can assign unique IDs to rows missing them
 max_id=$(awk -F';' 'NR>1 && $1~/^[0-9]+$/ {if($1>max) max=$1} END{print max}' "$input_file")
 new_id=$((max_id + 1))
 
 # Process the file with all required transformations
-awk -F';' -v new_id="$new_id" '
-BEGIN {OFS = "\t"}
+awk -F';' -v new_id="$new_id" 'BEGIN {OFS = "\t"}
 NR == 1 {
     # Preserve existing slash if present, otherwise add one
+    # This ensures consistent header formatting
     if ($0 ~ /^\//) {
         # Keep existing slash and convert following semicolons to tabs
         first_char = substr($0, 1, 1)
@@ -41,17 +41,21 @@ NR == 1 {
     print
     next
 }
+
 {
     # Handle empty ID by assigning new ID
+    # Ensures every row has a unique identifier
     if ($1 == "") {
         $1 = new_id++
     }
     
     # Convert decimal commas to points for numeric fields
+    # Standardizes number format across the dataset
     gsub(/,/, ".", $9)   # Rating Average
     gsub(/,/, ".", $11)  # Complexity Average
     
     # Remove non-ASCII characters from all fields
+    # Cleans problematic characters that might affect processing
     for (i = 1; i <= NF; i++) {
         gsub(/[^\x20-\x7E]/, "", $i)
     }
@@ -62,4 +66,5 @@ NR == 1 {
 }' "$input_file" | tr -d '\r' > "$output_file"  # Convert Windows line endings to Unix and save to output
 
 echo "Successfully processed $input_file -> $output_file"
+
 exit 0
